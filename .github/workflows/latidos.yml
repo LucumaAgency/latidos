@@ -1,0 +1,57 @@
+name: Latidos
+
+# Reemplaza a cron-job.org, que no llega a estos sitios (nov-2026).
+# GitHub corre como mínimo cada 5 minutos; cada pasada da 4 latidos con un minuto de separación,
+# así que en la práctica queda ~1 latido por minuto (con algún hueco cuando GitHub se atrasa).
+# Los tokens van como secrets del repo; aquí solo están las URLs públicas.
+
+on:
+  schedule:
+    - cron: '*/5 * * * *'
+  workflow_dispatch:
+
+permissions:
+  actions: write # para mantener viva la programación (ver el último paso)
+
+# Nunca dos pasadas a la vez: si GitHub se atrasa, la siguiente espera.
+concurrency:
+  group: latidos
+  cancel-in-progress: false
+
+jobs:
+  latir:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - name: Latidos (4 por pasada, cada 60 s)
+        env:
+          YARD_CRON_TOKEN: ${{ secrets.YARD_CRON_TOKEN }}
+          CRM_CRON_TOKEN: ${{ secrets.CRM_CRON_TOKEN }}
+        run: |
+          latir() { # nombre url [cabecera]
+            local code
+            if [ -n "$3" ]; then
+              code=$(curl -s -o /dev/null -m 40 -w '%{http_code}' -H "$3" "$2" || true)
+            else
+              code=$(curl -s -o /dev/null -m 40 -w '%{http_code}' "$2" || true)
+            fi
+            echo "$(date -u +%H:%M:%S) $1 $code"
+            [ "$code" = "200" ] || echo "::warning::$1 respondió $code"
+          }
+          for i in 1 2 3 4; do
+            if [ -n "$YARD_CRON_TOKEN" ]; then latir yard https://yard.heavylisting.com/api/v1/cron/tick "X-Cron-Token: $YARD_CRON_TOKEN"; fi
+            if [ -n "$CRM_CRON_TOKEN" ]; then latir crm https://crm.pruebalucuma.site/api/v1/cron/tick "X-LCRM-Cron: $CRM_CRON_TOKEN"; fi
+            latir live https://live.heavylisting.com/api/health
+            [ $i -lt 4 ] && sleep 60
+          done
+
+      # GitHub apaga la programación de un repo público tras 60 días sin actividad.
+      # Una vez al día (la pasada de las 06:00 UTC) se vuelve a "habilitar" el workflow, lo que reinicia ese plazo.
+      - name: Mantener viva la programación
+        if: github.event_name == 'schedule' && github.event.schedule == '*/5 * * * *'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [ "$(date -u +%H%M)" \< "0605" ] && [ "$(date -u +%H)" = "06" ]; then
+            gh api -X PUT "repos/${{ github.repository }}/actions/workflows/latidos.yml/enable" && echo "programación renovada"
+          fi
