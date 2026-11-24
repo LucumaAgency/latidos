@@ -27,6 +27,7 @@ jobs:
         env:
           YARD_CRON_TOKEN: ${{ secrets.YARD_CRON_TOKEN }}
           CRM_CRON_TOKEN: ${{ secrets.CRM_CRON_TOKEN }}
+          PUBLISHER_CRON_TOKEN: ${{ secrets.PUBLISHER_CRON_TOKEN }}
         run: |
           latir() { # nombre url [cabecera]
             local code
@@ -42,6 +43,8 @@ jobs:
             if [ -n "$YARD_CRON_TOKEN" ]; then latir yard https://yard.heavylisting.com/api/v1/cron/tick "X-Cron-Token: $YARD_CRON_TOKEN"; fi
             if [ -n "$CRM_CRON_TOKEN" ]; then latir crm https://crm.pruebalucuma.site/api/v1/cron/tick "X-LCRM-Cron: $CRM_CRON_TOKEN"; fi
             latir live https://live.heavylisting.com/api/health
+            # Publisher (Plesk duerme la app): cada latido la despierta y publica lo vencido.
+            if [ -n "$PUBLISHER_CRON_TOKEN" ]; then latir publisher https://publisher.pruebalucuma.site/api/v1/cron/latido "X-Cron: $PUBLISHER_CRON_TOKEN"; fi
             if [ $i -lt 4 ]; then sleep 60; fi
           done
 
